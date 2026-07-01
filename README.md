@@ -40,11 +40,11 @@ model is never spent driving a tool it doesn't need.
 claude --plugin-dir /path/to/resolve-pr-comments
 ```
 
-**From a marketplace** — push this repo to GitHub, then in Claude Code:
+**From this repo** — it doubles as a single-plugin marketplace (via `.claude-plugin/marketplace.json`). In Claude Code:
 
 ```
-/plugin marketplace add <your-org>/resolve-pr-comments
-/plugin install resolve-pr-comments@<your-marketplace>
+/plugin marketplace add JimCline/resolve-pr-comments
+/plugin install resolve-pr-comments@jimcline
 ```
 
 Enabling the plugin auto-loads its command (`/resolve-pr-comments`), the `pr-comments`
