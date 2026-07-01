@@ -1,5 +1,8 @@
 {
   "name": "jimcline",
+  "metadata": {
+    "description": "Jim Cline's Claude Code plugins."
+  },
   "owner": {
     "name": "Jim Cline"
   },
