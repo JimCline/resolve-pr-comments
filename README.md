@@ -1,6 +1,11 @@
-# github-pr-review
+# resolve-pr-comments
 
-Resolve **unresolved pull-request review comments** with a clean split of labor:
+**Respond to and resolve the review comments left on your pull requests.**
+
+> **Not a code-review tool** — it doesn't critique your code. It works through the review
+> threads reviewers *already opened*: assess each, reply, fix or reject, and resolve.
+
+It does this with a clean split of labor:
 
 - **A higher reasoning agent, (the orchestrator)** reasons, writes the code fixes, drives issue-by-issue
   approval with you, commits, and pushes. It has **no GitHub tools**.
@@ -32,14 +37,14 @@ model is never spent driving a tool it doesn't need.
 **Local / development** — point Claude Code at this directory:
 
 ```sh
-claude --plugin-dir /path/to/github-review-agent
+claude --plugin-dir /path/to/resolve-pr-comments
 ```
 
 **From a marketplace** — push this repo to GitHub, then in Claude Code:
 
 ```
-/plugin marketplace add <your-org>/github-review-agent
-/plugin install github-pr-review@<your-marketplace>
+/plugin marketplace add <your-org>/resolve-pr-comments
+/plugin install resolve-pr-comments@<your-marketplace>
 ```
 
 Enabling the plugin auto-loads its command (`/resolve-pr-comments`), the `pr-comments`
