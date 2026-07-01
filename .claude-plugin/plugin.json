@@ -1,6 +1,6 @@
 {
   "name": "resolve-pr-comments",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Respond to and resolve unresolved pull-request review comments — a high-reasoning orchestrator delegates all GitHub work to Haiku workers. Handles reviewer feedback; it does not perform code reviews.",
   "author": {
     "name": "Jim Cline"
@@ -12,7 +12,7 @@
       "title": "GitHub Personal Access Token",
       "description": "Dedicated PAT for this plugin's Haiku github-worker. Fine-grained: Metadata = Read, Pull requests = Read & write. Stored in your OS keychain — never in settings.json or a shared env var.",
       "sensitive": true,
-      "required": false
+      "required": true
     }
   }
 }
