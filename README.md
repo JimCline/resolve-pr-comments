@@ -58,6 +58,11 @@ then enable it. Commands and agents auto-load from `commands/` and `agents/`.
 /resolve-pr-comments <PR URL>
 ```
 
+Or just ask in natural language — e.g. *"resolve the unresolved review comments on PR 123"*
+— and the bundled **`pr-comments`** skill auto-triggers the same flow (also invocable as
+`/pr-comments`). The command and skill run one shared procedure; the skill delegates to the
+command file, so there's no duplicated logic to drift.
+
 Flow: preflight/onboarding → workers fetch unresolved threads → you assess (optionally
 consulting an advisor) → issue-by-issue approve/deny/discuss (or auto-address all) →
 you fix, commit, push → confirm → workers post replies and resolve each thread → final
