@@ -1,54 +1,184 @@
 # github-pr-review
 
-A Claude Code plugin that resolves **unresolved pull-request review comments** with a
-clean split of labor:
+Resolve **unresolved pull-request review comments** with a clean split of labor:
 
 - **Opus (the orchestrator)** reasons, writes the code fixes, drives issue-by-issue
   approval with you, commits, and pushes. It has **no GitHub tools**.
 - **Haiku (`github-worker` subagents)** do every GitHub read/write via the GitHub MCP
   server (with a `gh` CLI fallback) and hand back only distilled results.
 
-The point: raw GitHub API payloads never enter the high-reasoning model's context, and
-the expensive model is never spent driving a tool it doesn't need.
+Raw GitHub API payloads never enter the high-reasoning model's context, and the expensive
+model is never spent driving a tool it doesn't need.
 
-## How the gate works
+---
 
-The GitHub MCP server is scoped **inline** in `agents/github-worker.md`'s `mcpServers`
-frontmatter. Inline servers connect only while that subagent runs. As long as you do
-**not** also register a `github` server globally (`.mcp.json` / user settings), the
-orchestrator never has the connection and physically cannot call GitHub — it *must*
-delegate. This is an architectural gate, not a permission rule. (`permissions.deny`
-would not work here: it's global and would block the Haiku worker too.)
+## Requirements
 
-## Install
+| Requirement | Why | Notes |
+|---|---|---|
+| **Claude Code** with subagent `mcpServers` + `permissionMode` frontmatter support | The gate + the Haiku worker rely on these | Verified on **v2.1.197**; use a recent version |
+| **A GitHub MCP server** | The worker's actual GitHub tools | Default = official `github/github-mcp-server` (Docker). Alternatives below |
+| **Docker** *(for the default server only)* | Runs `ghcr.io/github/github-mcp-server` | Skip if you use the native binary, npx classic, or remote server |
+| **A GitHub Personal Access Token (PAT)** | Authenticates the worker's GitHub API calls | **See [GitHub token requirements](#github-token-requirements)** — this is the main setup step |
+| **Git push access to the repo** | The orchestrator commits & pushes your fixes | Uses your normal git auth (SSH or credential helper), **separate** from the PAT |
+| **`gh` CLI** *(optional)* | Fallback for servers lacking native thread ops | `gh auth login`; uses its own auth |
 
-Add this repo as a plugin (from a marketplace, or a local `--plugin-dir` during dev),
-then enable it. Commands and agents auto-load from `commands/` and `agents/`.
+---
 
-## Setup
+## Installation
 
-1. **A GitHub MCP server + token.** The worker defaults to the official
-   `github/github-mcp-server` via Docker, reading `GITHUB_PERSONAL_ACCESS_TOKEN`.
-   Create a PAT with scope `repo` (add `read:org` for org repos) and export it:
-   ```sh
-   export GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx
-   ```
-   Prefer a token over interactive OAuth so the worker also works in headless/scheduled
-   runs. Alternatives (native binary, classic npx server) are commented in
-   `agents/github-worker.md`. **You don't have to get this right up front** — the
-   `/resolve-pr-comments` preflight detects a broken setup and walks you through it.
+### 1. Install & enable the plugin
 
-2. **`gh` CLI (fallback).** `gh auth login`. The official server handles unresolved-thread
-   listing (`pull_request_read`/`get_review_comments`), in-thread replies
-   (`add_reply_to_pull_request_comment`), and thread resolution
-   (`pull_request_review_write`/`resolve_thread`) natively. `gh api graphql` is only a
-   fallback for servers that lack those (e.g. the classic npx server) — worth having anyway.
+**Local / development** — point Claude Code at this directory:
 
-3. **Global context-mode allowance (if you run context-mode).** Because context-mode's
-   PreToolUse hook redirects `WebFetch`/`Bash` to its own MCP tools, subagents that use
-   Bash need those tools permission-allowed. This is set at the user level in
-   `~/.claude/settings.json` → `permissions.allow` (the `ctx_*` tools). See the plugin
-   author's notes; it's a one-time global grant, independent of this plugin.
+```sh
+claude --plugin-dir /path/to/github-review-agent
+```
+
+**From a marketplace** — push this repo to GitHub, then in Claude Code:
+
+```
+/plugin marketplace add <your-org>/github-review-agent
+/plugin install github-pr-review@<your-marketplace>
+```
+
+Enabling the plugin auto-loads its command (`/resolve-pr-comments`), the `pr-comments`
+skill, and the `github-worker` agent. No `.mcp.json` changes are needed — the GitHub MCP
+server is scoped **inside** the worker (see [How the gate works](#how-the-gate-works)).
+
+### 2. Create a GitHub PAT
+
+See [GitHub token requirements](#github-token-requirements) for exact scopes. In short:
+create a token at **GitHub → Settings → Developer settings → Personal access tokens**, give
+it access to the repo(s) you'll review, and grant it PR read+write.
+
+### 3. Provide the token to the worker
+
+The default server reads the **`GITHUB_PERSONAL_ACCESS_TOKEN`** environment variable
+(a PAT takes precedence over any OAuth flow):
+
+```sh
+export GITHUB_PERSONAL_ACCESS_TOKEN=github_pat_xxx   # add to your shell profile
+```
+
+> **Never commit the token.** Keep it in your environment or a git-ignored `.env`, not in
+> any tracked file. This repo's `.gitignore` already excludes `.env`.
+
+You don't have to get this perfect up front — running `/resolve-pr-comments` health-checks
+GitHub access first and, if it fails (the most common cause is a missing token), **walks
+you through the setup**.
+
+### 4. Choose the GitHub MCP server runtime *(optional — Docker default works out of the box)*
+
+The worker's server is defined in `agents/github-worker.md` → `mcpServers`. The default:
+
+```yaml
+command: docker
+args: ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"]
+```
+
+Alternatives (commented in that file):
+- **Native binary** (no Docker): `github-mcp-server stdio`.
+- **Classic npx server** `@modelcontextprotocol/server-github` — simplest to run, but a
+  narrower/older toolset; if you use it, adjust the `mcp__github__*` tool names and rely on
+  the `gh` fallback for thread resolution.
+- **GitHub-hosted remote MCP** (`https://api.githubcopilot.com/mcp/`) — most capable, but
+  OAuth-interactive, so **not** for headless/scheduled runs.
+
+### 5. (Optional) `gh` CLI fallback
+
+```sh
+gh auth login
+```
+
+The official server handles unresolved-thread listing, in-thread replies, and thread
+resolution natively, so `gh` is only a fallback for servers that lack those. Recommended
+anyway.
+
+### 6. (Optional) context-mode allowance
+
+If you run the **context-mode** plugin, its `PreToolUse` hook redirects `WebFetch`/`Bash`
+to its own MCP tools. Subagents that use Bash (e.g. for the `gh` fallback) need those tools
+permission-allowed. This is a one-time **user-level** grant in `~/.claude/settings.json`:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_context-mode_context-mode__ctx_fetch_and_index",
+      "mcp__plugin_context-mode_context-mode__ctx_execute",
+      "mcp__plugin_context-mode_context-mode__ctx_batch_execute",
+      "mcp__plugin_context-mode_context-mode__ctx_execute_file"
+    ]
+  }
+}
+```
+
+It's independent of this plugin; skip it if you don't run context-mode.
+
+---
+
+## GitHub token requirements
+
+The PAT authenticates the **worker's** GitHub API calls: reading PRs and review threads,
+posting replies to review comments, and **resolving** conversations. (Your code pushes go
+through your normal git auth, not this token — see the note below.)
+
+### Classic PAT (simplest)
+
+| Scope | Needed for |
+|---|---|
+| **`repo`** | **Required.** Read PRs/review threads, post review-comment replies, resolve threads (private + public repos). |
+| `read:org` | Only if you work with **organization-owned** repos and want the server's org tools. |
+
+Create at **Settings → Developer settings → Personal access tokens → Tokens (classic)**,
+check **`repo`**, set an expiry, generate, and export it as `GITHUB_PERSONAL_ACCESS_TOKEN`.
+
+### Fine-grained PAT (least privilege — recommended)
+
+Create at **Settings → Developer settings → Personal access tokens → Fine-grained tokens**:
+
+- **Repository access:** select the specific repo(s) you'll review (or *All repositories*).
+- **Permissions:**
+
+| Permission | Access | Needed for |
+|---|---|---|
+| **Metadata** | Read-only | Mandatory (auto-selected for every fine-grained token). |
+| **Pull requests** | **Read and write** | Read review threads/comments; post replies; **resolve threads**. |
+| **Contents** | Read-only | Read file contents/diffs for review context. Use **Read and write** only if you also push over HTTPS with *this* token. |
+
+> **Permission to resolve conversations:** the token's user must have **write/triage**
+> access to the repository (or be the PR/comment author). A read-only collaborator can fetch
+> and reply but cannot resolve threads.
+
+### About code pushes
+
+Step 6 of the flow (apply approved fixes) is done by the **orchestrator using `git`**, over
+whatever git auth you already have configured (SSH keys or a credential helper) — **not**
+this PAT. If you push over **HTTPS using a token**, that token needs `repo` (classic) or
+**Contents: Read and write** (fine-grained).
+
+### Hardening the token surface *(optional)*
+
+With the official server you can restrict which toolsets load by adding an env var to the
+worker's Docker args, e.g. `-e GITHUB_TOOLSETS=pull_requests,repos` — just make sure it
+includes every toolset the worker's tools live in (dropping too much will break the
+health-check's `get_me`).
+
+---
+
+## Verify the setup
+
+Run the command against any PR you can access:
+
+```
+/resolve-pr-comments <PR number or URL>
+```
+
+Its **preflight** confirms GitHub access via a worker, checks `gh`, and — if anything is
+missing — onboards you through the fix before doing any work.
+
+---
 
 ## Usage
 
@@ -59,28 +189,59 @@ then enable it. Commands and agents auto-load from `commands/` and `agents/`.
 ```
 
 Or just ask in natural language — e.g. *"resolve the unresolved review comments on PR 123"*
-— and the bundled **`pr-comments`** skill auto-triggers the same flow (also invocable as
-`/pr-comments`). The command and skill run one shared procedure; the skill delegates to the
-command file, so there's no duplicated logic to drift.
+— and the bundled **`pr-comments`** skill auto-triggers the same flow (also `/pr-comments`).
+Command and skill run one shared procedure; the skill delegates to the command file, so
+there's no duplicated logic to drift.
 
-Flow: preflight/onboarding → workers fetch unresolved threads → you assess (optionally
-consulting an advisor) → issue-by-issue approve/deny/discuss (or auto-address all) →
-you fix, commit, push → confirm → workers post replies and resolve each thread → final
-report.
+**Flow:** preflight/onboarding → workers fetch unresolved threads → you assess (optionally
+consulting an advisor) → issue-by-issue approve/deny/discuss (or auto-address all) → you
+fix, commit, push → confirm → workers post replies and resolve each thread → final report.
 
-## Security note
+---
+
+## How the gate works
+
+The GitHub MCP server is scoped **inline** in `agents/github-worker.md`'s `mcpServers`
+frontmatter. Inline servers connect only while that subagent runs. As long as you do **not**
+also register a `github` server globally (`.mcp.json` / user settings), the orchestrator
+never has the connection and physically cannot call GitHub — it *must* delegate. This is an
+architectural gate, not a permission rule. (`permissions.deny` would not work: it's global
+and would block the Haiku worker too.)
+
+---
+
+## Security notes
 
 `agents/github-worker.md` uses `permissionMode: bypassPermissions` so the non-interactive
-Haiku worker can call its tools without prompts. Its blast radius is bounded by the
-explicit `tools:` allowlist and by the fact that the orchestrator only hands it narrow
-tasks. For tighter control, remove `permissionMode` and commit narrow allow rules
-(specific `mcp__github__*` tools plus `Bash(gh api *)`) to `.claude/settings.json`
-instead.
+Haiku worker can call its tools without prompts. Its blast radius is bounded by the explicit
+`tools:` allowlist and by the fact that the orchestrator only hands it narrow tasks. For
+tighter control, remove `permissionMode` and commit narrow allow rules (the specific
+`mcp__github__*` tools plus `Bash(gh api *)`) to `.claude/settings.json` instead.
+
+Keep the PAT out of version control, scope it to the repos you actually review, and set an
+expiry.
+
+---
+
+## Troubleshooting
+
+- **Health-check fails / "token: MISSING".** `GITHUB_PERSONAL_ACCESS_TOKEN` isn't set in the
+  environment Claude Code launched from. Export it and restart the session.
+- **Docker errors on the default server.** Ensure Docker is running, or switch the worker to
+  the native binary / npx classic (see step 4).
+- **Can reply but can't resolve threads.** The token's user lacks write/triage on the repo,
+  or (on a non-official server) thread resolution isn't exposed — install/auth `gh` for the
+  fallback.
+- **A tool name is rejected.** You're likely on a different server than the official one;
+  adjust the `mcp__github__*` names in `agents/github-worker.md` to match it.
+- **Subagent can't use `gh` / Bash under context-mode.** Apply the step-6 allowance above.
+
+---
 
 ## Optional hardening
 
-If you ever *must* register the GitHub MCP server globally (so the orchestrator can see
-it), add a `PreToolUse` hook matching `mcp__github__.*` that returns
+If you ever *must* register the GitHub MCP server globally (so the orchestrator can see it),
+add a `PreToolUse` hook matching `mcp__github__.*` that returns
 `permissionDecision: "deny"` unless the caller is the worker — the hook's stdin carries
 `agent_id` (present only inside a subagent) and `agent_type` (the agent's `name`), so
 "block the orchestrator, allow the Haiku fleet" is a short hook.
