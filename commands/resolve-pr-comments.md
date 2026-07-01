@@ -34,8 +34,8 @@ If the PR number still isn't known, delegate to `github-worker`: *"List open PRs
 #unresolved."* Show the list and let the user choose.
 
 **0.2 Health-check GitHub access.** Delegate a minimal task to `github-worker`:
-*"Confirm GitHub access: report the authenticated login and whether you can read
-`<owner/repo>`. Return ok/failed + reason. Fetch nothing else."*
+*"Confirm GitHub access to `<owner/repo>`: read its pull requests (list/search PRs, or read
+one PR) and return ok/failed + reason. Fetch nothing else."*
 - **ok →** continue.
 - **failed → ONBOARDING.** The GitHub MCP server isn't configured or reachable. First
   diagnose the most common cause — a missing token:

@@ -74,8 +74,12 @@ The worker's server is defined in `agents/github-worker.md` → `mcpServers`. Th
 
 ```yaml
 command: docker
-args: ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"]
+args: ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN",
+       "-e", "GITHUB_TOOLSETS=pull_requests", "ghcr.io/github/github-mcp-server"]
 ```
+
+`GITHUB_TOOLSETS=pull_requests` narrows the server to only the pull-request toolset — see
+[Narrowing the MCP surface](#narrowing-the-mcp-surface-applied-by-default).
 
 Alternatives (commented in that file):
 - **Native binary** (no Docker): `github-mcp-server stdio`.
@@ -139,13 +143,13 @@ check **`repo`**, set an expiry, generate, and export it as `GITHUB_PERSONAL_ACC
 Create at **Settings → Developer settings → Personal access tokens → Fine-grained tokens**:
 
 - **Repository access:** select the specific repo(s) you'll review (or *All repositories*).
-- **Permissions:**
+- **Permissions** — the minimal set is just the first two rows:
 
 | Permission | Access | Needed for |
 |---|---|---|
 | **Metadata** | Read-only | Mandatory (auto-selected for every fine-grained token). |
-| **Pull requests** | **Read and write** | Read review threads/comments; post replies; **resolve threads**. |
-| **Contents** | Read-only | Read file contents/diffs for review context. Use **Read and write** only if you also push over HTTPS with *this* token. |
+| **Pull requests** | **Read and write** | Read review threads/comments; post replies; **resolve threads**. This is the only capability the worker needs. |
+| Contents | *(usually none)* | Not needed by the worker — it reads PR diffs/files via the **Pull requests** permission, and the orchestrator reads your working-tree files locally. Grant **Read and write** only if you push over HTTPS with *this* token (see below). |
 
 > **Permission to resolve conversations:** the token's user must have **write/triage**
 > access to the repository (or be the PR/comment author). A read-only collaborator can fetch
@@ -158,12 +162,21 @@ whatever git auth you already have configured (SSH keys or a credential helper) 
 this PAT. If you push over **HTTPS using a token**, that token needs `repo` (classic) or
 **Contents: Read and write** (fine-grained).
 
-### Hardening the token surface *(optional)*
+### Narrowing the MCP surface *(applied by default)*
 
-With the official server you can restrict which toolsets load by adding an env var to the
-worker's Docker args, e.g. `-e GITHUB_TOOLSETS=pull_requests,repos` — just make sure it
-includes every toolset the worker's tools live in (dropping too much will break the
-health-check's `get_me`).
+Two independent layers keep the surface tight, and both ship configured:
+
+- **Server toolset:** the worker runs the server with `-e GITHUB_TOOLSETS=pull_requests`, so
+  only the pull-request toolset loads — no repo-admin, actions, code-security, org, or
+  file-write tools are even registered.
+- **Worker allowlist:** `agents/github-worker.md`'s `tools:` lists only the five PR tools it
+  actually calls — `list_pull_requests`, `search_pull_requests`, `pull_request_read`,
+  `add_reply_to_pull_request_comment`, `pull_request_review_write`.
+
+This is **separate from the PAT scopes** above: the PAT is the real security boundary at
+GitHub's API, while the toolset + allowlist limit what the model can even invoke. Keep both
+tight. (If you switch to a different MCP server, adjust these tool names and, if it lacks
+native thread resolution, lean on the `gh` fallback.)
 
 ---
 

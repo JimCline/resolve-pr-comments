@@ -27,12 +27,10 @@ permissionMode: bypassPermissions
 # fall back to `gh api` / `gh api graphql` (which is why Bash + the context-mode ctx
 # redirect targets are included).
 tools: >-
-  mcp__github__get_me,
   mcp__github__list_pull_requests,
   mcp__github__search_pull_requests,
   mcp__github__pull_request_read,
   mcp__github__add_reply_to_pull_request_comment,
-  mcp__github__add_issue_comment,
   mcp__github__pull_request_review_write,
   Bash,
   mcp__plugin_context-mode_context-mode__ctx_execute,
@@ -50,7 +48,10 @@ tools: >-
 mcpServers:
   github:
     command: docker
-    args: ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"]
+    # GITHUB_TOOLSETS=pull_requests narrows the server to ONLY the pull-request toolset
+    # (least privilege — everything this plugin uses lives there). Read-only is NOT set
+    # because the worker must reply to and resolve threads.
+    args: ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "-e", "GITHUB_TOOLSETS=pull_requests", "ghcr.io/github/github-mcp-server"]
     env:
       GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}"
   # ── Alternative A: official server as a native binary (no Docker) ──
