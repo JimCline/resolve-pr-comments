@@ -11,6 +11,11 @@
       "name": "resolve-pr-comments",
       "source": "./",
       "description": "Respond to and resolve unresolved pull-request review comments — a higher-reasoning orchestrator delegates all GitHub work to Haiku workers. Not a code-review tool."
+    },
+    {
+      "name": "code-critic",
+      "source": "./code-critic",
+      "description": "Adversarial code review of a local diff or a GitHub PR — the advisor (or main agent) reviews, findings are triaged by severity, and you act issue-by-issue (fix locally / post inline PR comments). All GitHub and outbound-git work is delegated to a Haiku critic-worker. Companion to resolve-pr-comments."
     }
   ]
 }
