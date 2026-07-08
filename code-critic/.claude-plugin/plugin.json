@@ -1,12 +1,11 @@
 {
   "name": "code-critic",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Adversarial code review of a local diff or a GitHub PR. A high-reasoning orchestrator (or the advisor) does the review, then delegates ALL GitHub and outbound-git actions to a Haiku critic-worker. It reviews AND acts — fixes locally, or posts inline review comments on the PR. Companion to resolve-pr-comments (which resolves reviewer comments; this one authors the review).",
   "author": {
     "name": "Jim Cline"
   },
   "keywords": ["github", "pull-request", "code-review", "adversarial-review", "diff-review", "mcp", "haiku", "orchestration"],
-  "hooks": "./hooks/hooks.json",
   "userConfig": {
     "github_pat": {
       "type": "string",
