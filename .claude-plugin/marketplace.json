@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "resolve-pr-comments",
-      "source": "./",
+      "source": "./resolve-pr-comments",
       "description": "Respond to and resolve unresolved pull-request review comments — a higher-reasoning orchestrator delegates all GitHub work to Haiku workers. Not a code-review tool."
     },
     {

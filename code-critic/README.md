@@ -2,7 +2,7 @@
 
 **Adversarially review a local diff or a GitHub PR — then act on the findings.**
 
-> **Companion to [resolve-pr-comments](../README.md), not a duplicate.** resolve-pr-comments
+> **Companion to [resolve-pr-comments](../resolve-pr-comments/README.md), not a duplicate.** resolve-pr-comments
 > *resolves* the review threads reviewers already opened. code-critic **authors** the
 > review: it critiques a diff, triages the findings by severity, and either fixes them
 > locally or posts inline review comments on the PR.
