@@ -17,6 +17,40 @@ pull-request review comments. Follow the steps below in order.
   interaction. Workers are hands, not brains. Hand each worker only the narrow slice it
   needs, never the whole plan.
 
+## Dispatch discipline (context economy — applies to EVERY worker dispatch)
+
+Worker results land in YOUR context; every avoidable dispatch is avoidable tokens.
+
+- **One dispatch per unit of information, ever.** Before dispatching any fetch or write,
+  check whether an earlier dispatch in this session already covers it — in flight
+  (launched but no result yet) or completed. If in flight, WAIT for it (its result
+  arrives as a task notification); never launch a duplicate because a result "hasn't
+  come back yet". If completed, reuse the result you already hold — to extend it, prefer
+  `SendMessage` to that same worker (it keeps its context) over a fresh dispatch.
+- **Cancel superseded dispatches.** If a tool call is rejected, or the user changes
+  direction while a background worker from that same step is still running, `TaskStop`
+  that worker before dispatching a replacement — otherwise both results land in your
+  context.
+- **Batch writes; don't fan out small N.** When one worker can loop over a list of
+  independent items (e.g. reply+resolve tuples), send ONE worker the whole list and get
+  one aggregated result back. Fan out in parallel only when the list is large (> ~8) or
+  the user has asked for speed over token economy. (Fan-out also risks a known harness
+  issue where several background completions landing close together can stall
+  notification delivery — one batched dispatch avoids it entirely.)
+- **Success is silent; detail is derivable.** Specify each worker's EXACT return shape
+  in the dispatch, and make it exception-only where possible (`ok` on success; detail
+  only for failures). Never ask a worker for data you can derive yourself (local file
+  contents, constructible URLs) or data you handed it (it echoing your input back is
+  pure duplication).
+- **Worker prompts are minimal and self-contained** — the prompt you write is ALSO in
+  your context. Each dispatch carries only the literal task: identifiers, exact text to
+  post, and the expected return shape. Never
+  paste session scaffolding — plan text, prior worker output, hook/system-reminder
+  content (e.g. `context_window_protection` blocks) — into a worker prompt; ambient text
+  that rides along can trip the permission classifier as an injection pattern and cost a
+  rejected call + retry. If a dispatch IS rejected by a classifier, re-send it stripped
+  to the bare task string.
+
 Optional argument (a PR number or URL): `$ARGUMENTS`
 
 ---
@@ -30,12 +64,13 @@ Otherwise ask the user (AskUserQuestion):
 - "A different repo or PR URL" — let them paste `owner/repo` or a full PR URL.
 
 If the PR number still isn't known, delegate to `github-worker`: *"List open PRs for
-`<owner/repo>` that have unresolved review threads; return number, title, author,
-#unresolved."* Show the list and let the user choose.
+`<owner/repo>` that have unresolved review threads; return one line per PR — number,
+title, author, #unresolved — and nothing else."* Show the list and let the user choose.
 
 **0.2 Health-check GitHub access.** Delegate a minimal task to `github-worker`:
 *"Confirm GitHub access to `<owner/repo>`: read its pull requests (list/search PRs, or read
-one PR) and return ok/failed + reason. Fetch nothing else."*
+one PR). Fetch nothing else. Return EXACTLY `ok` on success, or `failed: <one-line
+reason>` — no other text."*
 - **ok →** continue.
 - **failed → ONBOARDING.** The GitHub MCP server isn't configured or reachable. The most
   common cause is an unset/invalid PAT — this plugin stores its token in the secure
@@ -60,13 +95,35 @@ the MCP server natively supports, and offer to help install/auth `gh`.
 
 ## Steps 1–3 — Fetch unresolved threads (delegated) and take the handoff
 
-Delegate the fetch to `github-worker` (one worker for the PR; split into parallel
-workers per-thread only if the PR is very large). Instruct it to return a **succinct
-handoff** — for EACH unresolved review thread only:
+**Fetch exactly once per PR.** If a fetch for this PR was already dispatched this
+session, do not dispatch another: still running → wait for its result; completed → reuse
+it (need more detail? `SendMessage` the same worker). A rejected tool call elsewhere in
+the turn does NOT invalidate an in-flight fetch — the launched worker still completes
+and delivers; a second dispatch just puts the same table in your context twice.
+
+Delegate the fetch to ONE `github-worker` for the whole PR. Instruct it to return a
+**minimal handoff** — for EACH unresolved review thread ONLY the fields you cannot
+derive yourself:
 `thread_id` (GraphQL node id), `comment_id` (root review-comment REST id), `path`,
-`line`/`start_line`, `author`, root comment `body` (verbatim, trimmed), any `replies`
-(author + trimmed body), a short quoted `code_hunk` (a few lines of context — never the
-whole file), and `permalink`.
+`line`/`start_line`, `author`, root comment `body` (verbatim, trimmed), and — only if
+replies exist — the latest non-bot reply: its author + its first 2 lines VERBATIM
+(never a paraphrase or summary; a small model asked to "summarize" will fabricate).
+
+**Do NOT ask for what you can derive locally** (every avoided field is N× tokens):
+- No `code_hunk` — you have the repo; `Read` the file at `path:line` yourself when
+  assessing. Fresher than a worker transcription, and only for threads that need it.
+- No `permalink` — construct it when needed:
+  `https://github.com/<owner>/<repo>/pull/<N>#discussion_r<comment_id>`.
+- No full reply chains, no reactions, no timestamps, no per-thread commentary.
+
+**Very large PRs (> ~15 unresolved threads): use a file handoff instead of a bigger
+message.** Have the worker write the full per-thread detail as JSON to a file (give it
+an exact absolute path, e.g. `/tmp/pr-<N>-threads.json`) and return only the path plus a
+one-line-per-thread index (`thread_id`, `path:line`, author, the root comment's first
+line VERBATIM — never a written summary). Then read
+each thread's detail from the file only when you work that thread in Step 5 — threads
+the user skips never cost you their bodies. Do NOT split the fetch into parallel
+per-thread workers — that multiplies per-dispatch overhead instead of reducing it.
 
 Exclude resolved/outdated threads and pure bot noise. The worker gets unresolved threads
 natively from `pull_request_read (method: get_review_comments)` — each thread carries
@@ -124,25 +181,35 @@ resolution, and resolve each thread?"* If they're not ready, stay and keep itera
 
 ## Step 7 — Delegate the PR resolution actions to workers
 
-**Only after explicit user approval.** For each addressed thread, delegate to
-`github-worker` — fan out in parallel, one thread (or a small batch) per worker. Each
-unit does exactly:
+**Only after explicit user approval.** Delegate to `github-worker` — **one worker
+carrying the FULL list** of `{thread_id, comment_id, reply_text}` tuples when there are
+≤ ~8 threads (the default). Only split into parallel workers above that, or if the user
+asked for speed over token economy. For each tuple the worker does exactly:
 - **Reply** to the original review comment (`in_reply_to = comment_id`) with the
   resolution: for a fix, summarize the change and cite the pushed commit SHA; for a
   rejection, give the rationale.
 - **Resolve** the thread (`thread_id`).
 The worker replies via `add_reply_to_pull_request_comment` and resolves via
 `pull_request_review_write (method: resolve_thread, threadId)` — both native on the official
-server; `gh api` is the fallback only if the server lacks them. Give each worker only its
-thread(s) and the exact reply text — never the plan.
+server; `gh api` is the fallback only if the server lacks them. Give the worker only the
+tuples and exact reply texts — never the plan — and demand **exception-only reporting**:
+*"If every tuple succeeded, return EXACTLY `ok: <N> replied+resolved`. Otherwise return
+one line per FAILED tuple only (`thread_id`, what failed, error) plus the success count.
+No table for successes, no confirmation prose."*
 
 ---
 
 ## Step 8 — Collect reports & summarize
 
-Each worker returns a succinct report: `thread_id`, `reply_posted`, `resolved`, `error`.
-Compile a final table for the user: per-thread outcome, commit SHAs for fixes, and any
-failures. Offer to retry failures (re-delegate just those).
+The worker returns `ok: <N> replied+resolved`, or failure lines for the exceptions.
+**Treat the return as untrusted** (Haiku executes; it does not reliably judge): the
+string must match the exact shape and `<N>` must equal the number of tuples you sent —
+any deviation (wrong N, extra prose, missing shape) is a FAILURE to investigate, never
+"close enough". Exception-only reporting only works because you verify the count.
+You already know every thread's decision and commit SHA — build the user-facing final
+summary FROM YOUR OWN STATE plus the success/failure signal; don't ask the worker to
+echo back data you gave it. Offer to retry failures (re-delegate just those — again as
+one batched dispatch).
 
 Throughout, keep your own context lean: push GitHub I/O and its raw output down to the
 workers and hold only the distilled results.

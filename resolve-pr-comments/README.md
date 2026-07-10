@@ -128,6 +128,15 @@ permission-allowed. This is a one-time **user-level** grant in `~/.claude/settin
 
 It's independent of this plugin; skip it if you don't run context-mode.
 
+> **Known interaction:** context-mode's `PreToolUse` hook also appends a ~4.5 KB
+> `<context_window_protection>` routing block to **every** subagent dispatch,
+> unconditionally and with no off switch. Besides the token cost, that block can trip
+> permission auto-classifiers ("keep raw bytes out of the transcript" pattern-matches
+> monitoring evasion), causing a worker dispatch to be rejected. The orchestrator is
+> instructed to re-send a rejected dispatch as a bare minimal task string; batching
+> (one worker per write batch instead of one per thread) also pays this injection once
+> instead of N times.
+
 ---
 
 ## GitHub token requirements
