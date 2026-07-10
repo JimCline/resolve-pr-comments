@@ -30,28 +30,26 @@ narrowly (do NOT arm the code-critic review lock — this is not a review):
    phrasing + context-mode's injected routing text reads as a prompt injection to the
    permission classifier and gets the dispatch blocked).
 3. Interpret for the user (per worker):
-   - `mcp: ok` on both → the hosted server, PAT, and both inline configs are healthy.
+   - `mcp: ok` on both → the MCP server, PAT, and both inline configs are healthy.
    - `mcp: failed — No such tool available: mcp__github__*` → that worker's inline
      server never connected. Most common: the plugin's `github_pat` config is
      empty/unset — sensitive config values can be LOST on Claude Code restart or
      upgrade (claude-code#62442), so have them re-enter it via **`/plugin` →
-     github-pr-toolkit → Configure**, then re-run this doctor. Next: `npx`/Node
-     missing (`which npx` — the default reaches the hosted server through the
-     `mcp-remote` stdio bridge), then no network to `api.githubcopilot.com` (check
-     `curl -sI https://api.githubcopilot.com/mcp/` yourself). If they switched a
-     worker to a local-server alternative, also check Docker (`docker ps`) or the
-     `github-mcp-server` binary. Do NOT suggest the direct `type: http` + headers
-     config — Claude Code doesn't substitute secrets into headers (claude-code#51581);
-     that's why the bridge exists.
+     github-pr-toolkit → Configure**, then re-run this doctor. Next: Docker not
+     running (`docker ps` — the default runs the official server in a container) or
+     the image not pullable (`docker pull ghcr.io/github/github-mcp-server`). If they
+     switched a worker to the hosted-bridge alternative, instead check `which npx`
+     and network to `api.githubcopilot.com`. Do NOT suggest the direct `type: http`
+     + headers config — Claude Code doesn't substitute secrets into headers
+     (claude-code#51581).
    - `mcp: failed — <401/403/auth error>` → the server responded but the PAT is
      invalid/expired or under-scoped (needs Metadata: Read + Pull requests: Read &
      write + Contents: Read — one PAT covers both workers).
-   - Error mentions `Incompatible auth server` / `does not support dynamic client
-     registration` → this IS a bad-PAT error in disguise: GitHub returned 401 for the
-     Bearer token, and the mcp-remote bridge then tried (and failed) an OAuth
-     fallback. Ignore the OAuth wording — fix the PAT.
-   - Error mentions `Authorization header is badly formatted` → the PAT value itself
-     is malformed (empty, truncated, or not a GitHub token) — re-enter it.
+   - (Hosted-bridge alternative only) Error mentions `Incompatible auth server` /
+     `does not support dynamic client registration` → a bad-PAT error in disguise:
+     GitHub returned 401 and the mcp-remote bridge's OAuth fallback died. Ignore the
+     OAuth wording — fix the PAT. `Authorization header is badly formatted` → the PAT
+     value itself is malformed (empty/truncated) — re-enter it.
    - One worker ok, the other failed → the shared PAT is fine; the failing worker's
      inline `mcpServers` block has drifted — diff the two agent files.
    - The `gh:` line tells them whether the CLI fallback would work in the meantime.
@@ -62,13 +60,12 @@ narrowly (do NOT arm the code-critic review lock — this is not a review):
      github-pr-toolkit → Configure**, paste a fine-grained PAT (Metadata: Read + Pull
      requests: Read & write + Contents: Read; offer to walk through creating one at
      GitHub → Settings → Developer settings → Fine-grained tokens), and say when done.
-     Then check `which npx` and network reachability of `api.githubcopilot.com`
-     yourself. If `npx` is missing, offer to walk them through installing Node
-     (`brew install node`, or nodejs.org) — that's all the bridge needs — or, if they
-     don't want Node, switch the worker to a local-server alternative (Docker /
-     native binary, commented in the agent files). If everything checks out and it
-     still fails, offer the local-server alternatives and help edit the `mcpServers`
-     blocks.
+     Then check Docker yourself: `docker ps` (daemon running?) and
+     `docker pull ghcr.io/github/github-mcp-server` (image reachable?); if the daemon
+     is down, tell them to start Docker Desktop. If they can't or won't run Docker,
+     offer the alternatives commented in the agent files (native `github-mcp-server`
+     binary, or the hosted server via the `mcp-remote` bridge — needs `npx`) and help
+     edit the `mcpServers` blocks.
    - **Auth error (401/403)** → the PAT is invalid, expired, or under-scoped — help
      them mint a correct one and re-enter it via Configure.
    - After EACH fix, re-dispatch the failing probe(s) to verify. Finish by reporting

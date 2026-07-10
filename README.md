@@ -35,10 +35,11 @@ write, Contents: Read** — see the [plugin README](github-pr-toolkit/README.md#
 
 - **Claude Code** with subagent `mcpServers` + `permissionMode` frontmatter support
   (verified on v2.1.197+).
-- **A GitHub MCP server** — default: **GitHub's hosted remote MCP**
-  (`api.githubcopilot.com/mcp/x/pull_requests`), authenticated with the plugin's PAT as
-  a Bearer header through the `mcp-remote` stdio bridge (needs only `npx`). Local alternatives (official
-  server via Docker or native binary) are commented in each worker's agent file.
+- **A GitHub MCP server** — default: the **official `github/github-mcp-server` via
+  Docker**, authenticated with the plugin's PAT through the container env (the most
+  reliable transport for keychain-stored secrets). Alternatives — native binary, or
+  GitHub's hosted remote via the `mcp-remote` bridge — are commented in each worker's
+  agent file.
 - **`gh` CLI** *(optional)* — gated fallback for servers lacking a native capability.
 
 ## Architecture (shared)

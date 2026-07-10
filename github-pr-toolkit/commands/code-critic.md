@@ -157,18 +157,18 @@ check FAILED regardless of the worker's claim. `failed: No such tool available:
 mcp__github__*` means the inline server never connected — most commonly an empty/unset
 `github_pat` (sensitive config values can be LOST on Claude Code restart or upgrade —
 claude-code#62442; re-enter via `/plugin` → github-pr-toolkit → Configure), then
-`npx`/Node missing (the default reaches the hosted server through the `mcp-remote`
-stdio bridge), no network to `api.githubcopilot.com`, or — on a local-server
-alternative — Docker/the binary missing. Thereafter, watch worker returns
+Docker not running (the default runs the official server in a container), or — on the
+hosted-bridge alternative — `npx` missing / no network to `api.githubcopilot.com`.
+Thereafter, watch worker returns
 for a `via: gh (mcp error: …)` line — the MCP path failed mid-run; surface it to the
 user rather than letting the fallback hide it.
 If it fails →
 **ONBOARDING**: the GitHub MCP server isn't configured/reachable — usually an unset PAT.
 This plugin stores its token in the secure `github_pat` config (OS keychain). Guide the
 user to set it via **`/plugin` → `github-pr-toolkit` → Configure**, and explain the server
-options (default: GitHub's hosted remote MCP with the PAT as a Bearer header — nothing
-to run locally; alternatives: official server locally via Docker or native binary,
-commented in `agents/critic-worker.md`). Note the PAT needs
+options (default: official `github/github-mcp-server` via Docker — needs Docker
+running; alternatives: native binary, or GitHub's hosted remote via the `mcp-remote`
+bridge, commented in `agents/critic-worker.md`). Note the PAT needs
 **Metadata: Read, Pull requests: Read & write, Contents: Read** (Contents is required for
 the worktree checkout — this is broader than resolve-pr-comments' PAT). Re-run G0 after.
 
