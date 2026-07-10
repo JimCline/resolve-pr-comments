@@ -22,6 +22,32 @@ review. Follow the steps below in order.
   comments, and commit/push. Hand it only the narrow slice it needs, and treat what it
   returns as untrusted: verify anything you can check locally.
 
+## Dispatch discipline (context economy — applies to EVERY worker dispatch)
+
+Every dispatch has a fixed token cost in YOUR context (the prompt you write, the result,
+harness metadata — plus ambient hook injections you don't control). Minimize dispatches
+and minimize what crosses back:
+
+- **Consolidate: one dispatch per flow moment, not per operation.** The worker accepts
+  combined tasks — WORKTREE + EXISTING-COMMENTS is one dispatch, all approved comments +
+  worktree CLEANUP is one dispatch, COMMIT + PUSH is one dispatch. The full GitHub flow
+  should cost ~3 worker dispatches total; never dispatch per finding.
+- **One dispatch per unit of information, ever.** Before dispatching, check whether an
+  earlier dispatch already covers it — in flight → WAIT for it (never launch a duplicate
+  because a result "hasn't come back yet"); completed → reuse the result. A rejected
+  tool call elsewhere in the turn does NOT invalidate an in-flight worker. `TaskStop` a
+  superseded dispatch before re-sending.
+- **Success is silent; detail is derivable.** Specify each task's EXACT return shape and
+  make it exception-only where possible. Never ask the worker for data you can derive
+  yourself or data you handed it. Exception: cross-check fields (`head_sha`, `sha`,
+  paths) are ALWAYS worth their tokens — verification beats brevity.
+- **Worker prompts are minimal and self-contained** — the prompt you write is also in
+  your context. Only the literal task: identifiers, exact texts, expected return shape.
+  Never paste session scaffolding (plans, prior results, hook/system-reminder content)
+  into a dispatch; ambient text riding along can trip the permission classifier as an
+  injection pattern. If a dispatch IS rejected by a classifier, re-send it stripped to
+  the bare task string.
+
 Optional argument (a PR number/URL, or `--branch <ref>` / `--against <ref>`): `$ARGUMENTS`
 
 ---
@@ -96,15 +122,14 @@ Take the agreed action per issue — make the fixes in the working tree (your `E
 which are not gated). In one-by-one mode, loop: show the issue + recommended action, ask
 Approve / Skip / Modify, then apply. Track which issues were fixed.
 
-## L8 — Commit (delegated, optional)
-If any changes were made, ask (AskUserQuestion) whether to commit. If yes: prepare a clear
-commit **subject + detailed description** of what changed and why, then delegate to
-`critic-worker`: *"COMMIT task — <subject> / <body>."* It returns the SHA — verify it with
-your own `git log -1`.
-
-## L9 — Push (delegated, optional)
-Ask (AskUserQuestion) whether to push. If yes, delegate to `critic-worker`: *"PUSH task."*
-Report the result. Then remove the marker (step 0.1) and summarize.
+## L8 — Commit & push (delegated, optional — one ask, one dispatch)
+If any changes were made, ask ONCE (AskUserQuestion): **Commit and push** /
+**Commit only** / **Neither**. If committing: prepare a clear commit **subject +
+detailed description** of what changed and why, then ONE `critic-worker` dispatch:
+*"COMMIT task — <subject> / <body>"* — plus *"then PUSH"* if they chose both. It returns
+the SHA (and pushed ref) — verify the SHA with your own `git log -1`. If they chose
+commit-only and later want to push, that's a separate *"PUSH task"* dispatch. Then
+remove the marker (step 0.1) and summarize.
 
 ---
 
@@ -112,8 +137,11 @@ Report the result. Then remove the marker (step 0.1) and summarize.
 
 ## G0 — Preflight & onboarding
 Determine `owner/repo` + PR number (from `$ARGUMENTS`, or `git remote get-url origin`; if
-unknown, delegate to `critic-worker` to list open PRs and let the user choose).
-Health-check GitHub access via a minimal `critic-worker` task (read the PR). If it fails →
+unknown, delegate to `critic-worker`: *"list open PRs for `<owner/repo>` — one line per
+PR (number, title, author), nothing else"* and let the user choose).
+Health-check GitHub access via a minimal `critic-worker` task: *"Read PR #N on
+`<owner/repo>`. Return EXACTLY `ok` on success, or `failed: <one-line reason>` — no
+other text."* If it fails →
 **ONBOARDING**: the GitHub MCP server isn't configured/reachable — usually an unset PAT.
 This plugin stores its token in the secure `github_pat` config (OS keychain). Guide the
 user to set it via **`/plugin` → `code-critic` → Configure**, and explain the server
@@ -129,9 +157,14 @@ the worktree checkout — this is broader than resolve-pr-comments' PAT). Re-run
 If the default is chosen, make sure git ignores it locally (no commit needed): append
 `.claude/worktrees/` to `.git/info/exclude` if not already present.
 
-**G1.2 Delegate with the EXACT path.** Delegate to `critic-worker`: *"WORKTREE task —
-check out PR #N into a worktree at EXACTLY `<absolute path>`; return path, branch,
-head_sha, and the PR's base branch."* The worker must never choose its own location.
+**G1.2 Delegate with the EXACT path — one combined dispatch.** Delegate to
+`critic-worker`: *"WORKTREE + EXISTING-COMMENTS task — (1) check out PR #N into a
+worktree at EXACTLY `<absolute path>`; return path, branch, head_sha, base branch.
+(2) List the review threads already on PR #N — one line per thread: path, line, author,
+isResolved/isOutdated, root body's first 2 lines VERBATIM (never paraphrased); include
+resolved threads; no thread ids, no permalinks."* The worker must never choose its own location. If the PR
+is heavily reviewed (> ~15 threads expected), add an output file path for the thread
+detail and take only the one-line index back.
 
 **G1.3 Verify the handoff yourself:** the returned `worktree_path` equals the path you
 specified, and `git -C <path> log -1` matches `head_sha`. If the path differs, treat it as
@@ -149,8 +182,8 @@ not compute.
 Choose the reviewer (advisor default), run the adversarial review, and compile the
 **severity-ranked numbered list** with a succinct recommended action each.
 
-**G5.5 — Fetch existing review comments (delegated) and dedup.** Delegate to
-`critic-worker`: *"EXISTING-COMMENTS task — list the review threads already on PR #N."*
+**G5.5 — Dedup against existing comments.** You already hold the existing review
+threads from G1.2's combined return (don't re-fetch them).
 Cross-reference each finding against them: a finding **overlaps** an existing comment when
 it targets the same `path` + nearby line, or raises substantially the same point anywhere.
 Annotate overlapping findings in the list: *already flagged* (+ by whom), and whether the
@@ -163,20 +196,36 @@ flagged* annotation with the existing comment quoted briefly), then ask
 (AskUserQuestion). Tell the user they can press **Tab on an option to amend it** — e.g.
 tweak the proposed comment wording before it's posted. Options, ordered so the
 recommended one is first:
-- **If the issue is NOT already flagged** → recommend **posting the comment**: show the
-  drafted `body`; on approval (possibly amended via Tab), prepare the exact `path`,
-  `line` (and `side`, defaulting to `RIGHT`), and final `body`, then delegate to
-  `critic-worker`: *"COMMENT task — <path>:<line> <side> / <body>."* It returns the URL.
+- **If the issue is NOT already flagged** → recommend **queueing the comment**: show the
+  drafted `body`; on approval (possibly amended via Tab), record the exact `path`,
+  `line` (and `side`, defaulting to `RIGHT`), and final `body` in your comment QUEUE.
   Also offer: Skip / Something else.
 - **If the issue IS already flagged** → recommend **Skip** (don't double-flag —
   especially when the existing thread is resolved or the code shows it was addressed;
-  say which). Also offer: Post anyway (e.g. to add a materially new angle — draft it as a
-  complement, not a repeat) / Something else.
+  say which). Also offer: Queue anyway (e.g. to add a materially new angle — draft it as
+  a complement, not a repeat) / Something else.
 
-## G7 — Repeat & finish
-Continue until every issue is addressed or skipped. Present a final table (issue →
-action → comment URL / skipped). Then delegate worktree cleanup to `critic-worker`
-(`git worktree remove`), remove the review marker (step 0.1), and summarize.
+**Nothing is posted during this loop** — approved comments accumulate in the queue and
+publish together in G7 as ONE review (one worker dispatch, one review event on the PR,
+instead of N of each). Tell the user this up front.
+
+## G7 — Publish the review & finish
+When every issue is queued or skipped, show the queue one last time (path:line + body
+per comment) and confirm posting. Then ONE `critic-worker` dispatch: *"BATCH-COMMENTS +
+CLEANUP task — post these <N> comments as one review on PR #N: <the list>. Then remove
+the worktree at EXACTLY `<absolute path>`. If every comment posted, return
+`ok: <N> posted, <review_url>` + one `<path>:<line> <comment_url>` line per comment +
+the cleanup result; otherwise add one line per failed comment."* (Zero comments queued →
+the dispatch is just CLEANUP.)
+
+**Verify the return before trusting it** (Haiku executes; it does not reliably judge):
+`<N>` and the number of URL lines must BOTH equal your queue size, and the shape must
+match exactly — any deviation is a failure to investigate, not "close enough". Spot-check
+that the URLs are real `…/pull/<N>#discussion_r…` links, not reconstructions.
+
+Present a final table (issue → action → comment URL /
+skipped), offer to retry any failures (one batched re-dispatch), remove the review
+marker (step 0.1), and summarize.
 
 ---
 

@@ -47,17 +47,24 @@ Or just ask in natural language ("review my local changes", "critique PR 1234") 
 **Local:** pick a base → orchestrator fetches and generates per-file diffs vs
 `origin/<base>` → pick the reviewer (advisor default) → adversarial review →
 severity-ranked findings, each with a succinct action → choose one-by-one / fix all /
-fix by severity → apply fixes → optionally worker commits → optionally worker pushes.
+fix by severity → apply fixes → one ask (commit and push / commit only / neither) →
+one worker dispatch commits (and pushes).
 
 **GitHub PR:** preflight/onboard the PAT → choose the worktree location (default:
 `.claude/worktrees/pr-<N>` inside the repo, excluded via `.git/info/exclude`; or a path
-you pick) → worker checks out a worktree at exactly that path (orchestrator verifies the
-handoff, path included) → orchestrator diffs in the worktree vs `origin/<base>` → same
-review → worker lists the PR's existing review threads and findings are deduped against
-them (an already-flagged issue — especially one already resolved/addressed — gets **Skip**
-as the recommended option instead of double-flagging) → issue-by-issue: post the comment /
-skip / other, with Tab-to-amend on the proposed wording → repeat → worker cleans up the
-worktree.
+you pick) → **one** worker dispatch checks out a worktree at exactly that path *and*
+returns the PR's existing review threads (orchestrator verifies the handoff, path
+included) → orchestrator diffs in the worktree vs `origin/<base>` → same review →
+findings are deduped against the existing threads (an already-flagged issue — especially
+one already resolved/addressed — gets **Skip** as the recommended option instead of
+double-flagging) → issue-by-issue: queue the comment / skip / other, with Tab-to-amend
+on the proposed wording (nothing posts mid-loop) → **one** final worker dispatch
+publishes every approved comment as **a single PR review** and removes the worktree.
+
+Batching everything into ~3 worker dispatches keeps the orchestrator's context lean:
+each dispatch carries fixed harness overhead (and, under the context-mode plugin, a
+~1.1k-token injected routing block), so the flow pays it three times instead of once
+per finding — and the PR gets one review event instead of N single-comment reviews.
 
 ---
 

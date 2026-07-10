@@ -29,6 +29,14 @@ never review a diff you did not compute; treat worker returns as untrusted and c
 them against local git. You do the reasoning, the review triage, the code fixes, and all
 user interaction; the worker is hands, not brains.
 
+**Dispatch discipline:** minimize worker dispatches — the worker takes COMBINED tasks
+(worktree + existing-comments in one; all approved comments posted as ONE review + cleanup
+in one; commit + push in one), so the whole GitHub flow costs ~3 dispatches. Never
+dispatch per finding; queue approved comments and publish them together. Exact,
+exception-only return shapes (`ok` / `ok: N posted, <url>`); never re-dispatch a fetch
+that's in flight or done (`TaskStop` a superseded one first); worker prompts carry only
+the literal task, never ambient session text.
+
 ## How to run
 
 Execute the full, authoritative procedure in this plugin's command file:
@@ -40,13 +48,14 @@ Outline (same steps): **0** arm the session-named guard lock
 **local:** choose base ref → YOU fetch + generate per-file diffs vs `origin/<base>` →
 choose reviewer (advisor default / main) → adversarial review → severity-ranked numbered
 findings with a succinct action each → choose how to work the list (one-by-one / fix all /
-by severity) → apply fixes → optionally worker commits → optionally worker pushes.
+by severity) → apply fixes → one commit-and-push ask → one worker COMMIT(+PUSH) dispatch.
 **GitHub PR:** preflight + onboard the `github_pat` (Metadata:Read, Pull requests:R/W,
 Contents:Read) → choose the worktree location (default `.claude/worktrees/pr-<N>` in-repo,
-git-excluded locally; user-promptable) → worker checks out a worktree at EXACTLY that path
-(verify its handoff, path included) → YOU diff in the
-worktree vs `origin/<base>` → same review → worker lists existing review threads; dedup —
-findings already flagged (especially if resolved/addressed) get **Skip recommended**
-instead of a comment → issue-by-issue, post comment / skip / other (user can Tab-amend
-the proposed wording) → repeat → worker cleans up the worktree. Always remove the review
-marker on exit.
+git-excluded locally; user-promptable) → ONE worker dispatch checks out a worktree at
+EXACTLY that path AND returns the existing review threads as a one-line-per-thread list
+(verify the worktree handoff, path included) → YOU diff in the worktree vs
+`origin/<base>` → same review → dedup against the existing threads — findings already
+flagged (especially if resolved/addressed) get **Skip recommended** → issue-by-issue,
+QUEUE comment / skip / other (user can Tab-amend the proposed wording; nothing posts
+mid-loop) → ONE final worker dispatch publishes the queue as ONE review and removes the
+worktree. Always remove the review marker on exit.
