@@ -110,11 +110,13 @@ the 0.2 onboarding; don't let a degraded setup ride silently on the fallback.
   write), pasting it into the plugin's `github_pat` config, and — if they pick the
   local server — editing the plugin's `.mcp.json`. Re-run 0.2 after.
 
-**0.3 Check the `gh` fallback.** Run `gh auth status`. If `gh` is authenticated, workers
-may use `gh api` / `gh api graphql` for operations the MCP server doesn't expose
-(unresolved-thread listing, in-thread replies, thread resolution). If `gh` is missing,
-warn the user that thread *resolution* and *unresolved filtering* may be limited to what
-the MCP server natively supports, and offer to help install/auth `gh`.
+**0.3 Check the `gh` fallback — ONLY if 0.2 failed.** When the health check returned
+`ok`, SKIP this step entirely and proceed to Step 1: the official/hosted server
+natively covers everything this flow needs (unresolved-thread listing, in-thread
+replies, thread resolution), so `gh` adds nothing and checking it is wasted time.
+Run `gh auth status` only when 0.2 FAILED (it tells the user whether the CLI fallback
+could unblock them while the MCP setup gets fixed), or later if a worker return carries
+a `via: gh (mcp error: …)` line.
 
 ---
 

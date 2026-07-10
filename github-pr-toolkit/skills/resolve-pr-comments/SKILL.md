@@ -38,7 +38,8 @@ If you cannot read that file, follow this outline (same steps):
 
 0. **Preflight** — determine the PR source (ask; default = this repo's GitHub remote).
    Health-check GitHub access via a `github-worker`; if it fails, onboard the user through
-   GitHub MCP server setup (PAT + server choice). Check `gh auth status` for the fallback.
+   GitHub MCP server setup (PAT + server choice). Check `gh auth status` ONLY when the
+   health check failed — skip it when MCP is healthy (the server covers everything).
 1–3. **Fetch** — exactly one fetch per PR per session (reuse/wait, never duplicate);
    ONE `github-worker` returns unresolved threads with ONLY the non-derivable fields
    (`thread_id`, `comment_id`, `path`/`line`, author, trimmed body, latest substantive
