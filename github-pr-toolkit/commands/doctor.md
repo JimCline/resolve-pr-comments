@@ -46,6 +46,12 @@ narrowly (do NOT arm the code-critic review lock — this is not a review):
    - `mcp: failed — <401/403/auth error>` → the server responded but the PAT is
      invalid/expired or under-scoped (needs Metadata: Read + Pull requests: Read &
      write + Contents: Read — one PAT covers both workers).
+   - Error mentions `Incompatible auth server` / `does not support dynamic client
+     registration` → this IS a bad-PAT error in disguise: GitHub returned 401 for the
+     Bearer token, and the mcp-remote bridge then tried (and failed) an OAuth
+     fallback. Ignore the OAuth wording — fix the PAT.
+   - Error mentions `Authorization header is badly formatted` → the PAT value itself
+     is malformed (empty, truncated, or not a GitHub token) — re-enter it.
    - One worker ok, the other failed → the shared PAT is fine; the failing worker's
      inline `mcpServers` block has drifted — diff the two agent files.
    - The `gh:` line tells them whether the CLI fallback would work in the meantime.
