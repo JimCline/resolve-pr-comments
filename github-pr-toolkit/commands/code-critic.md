@@ -1,5 +1,5 @@
 ---
-description: Adversarial code review of a local diff or a GitHub PR — the advisor (or main agent) reviews, findings are triaged by severity, and you act issue-by-issue. GitHub writes and commits/pushes go through a Haiku worker; diffs you generate yourself.
+description: Adversarial code review of a local diff or a GitHub PR — the user picks review categories (general, security, design, adherence, performance, tests) and a reviewer (parallel category subagents, the advisor, or the main agent); findings are triaged by severity and you act issue-by-issue. GitHub writes and commits/pushes go through a Haiku worker; diffs you generate yourself.
 argument-hint: "[PR number/URL, or --branch <ref> / --against <ref> for local — optional]"
 ---
 
@@ -112,26 +112,88 @@ Do this with your own read-only git — do NOT delegate it:
    per file — `git diff --stat` first for the file list, then per-file diffs.
 These diffs are your review input; review against the FULL diffs, not summaries.
 
-## L3 — Choose the reviewer
-Ask (AskUserQuestion):
-- **The advisor (default)** — hand the diffs to the `advisor` tool for an independent,
-  adversarial review. *(If no advisor is available this session, say so and fall back.)*
-- **The main agent (you)** — you perform the adversarial review yourself.
+## L3 — Choose the review categories & the reviewer
+Ask ONE AskUserQuestion with four tabs (remind about Tab-to-amend):
 
-## L4 — Adversarial review
-The chosen reviewer scrutinizes the diffs adversarially: correctness bugs, edge cases,
-security, error handling, concurrency, resource leaks, API misuse, test gaps, and
-simplification/altitude issues. Produce concrete findings, each tied to a file + line.
-This is **reasoning over the diff, not investigation** — do not run tests, execute code,
-or diagnose to prove a finding out. A finding you can't fully confirm from the diff is
-still a finding: mark it *uncertain — confirming needs `<X>`* and carry it into the list.
-If you delegate this pass to the advisor, tell it the same: static review, surface
-uncertainty, do not execute anything.
+**Tab 1 — "Categories" (multiSelect).** *"Which review categories? Selecting all
+(across both tabs) is the default."*
+- **General Review** — correctness bugs, edge cases, error handling, concurrency,
+  resource leaks, API misuse, simplification/altitude issues.
+- **Security Review** — injection, authn/authz gaps, secrets in code, unsafe
+  deserialization, path traversal, SSRF, crypto misuse, trust-boundary violations.
+- **Design & Architecture** — coupling, cohesion, layering violations, leaky
+  abstractions, wrong-altitude APIs, extensibility traps, duplication of existing
+  mechanisms.
+- **Rules & Idioms Adherence** — conformance to the project's own directives
+  (CLAUDE.md, rules files, lint configs) and its canonical patterns/idioms.
+
+**Tab 2 — "More areas" (multiSelect).**
+- **Performance & Efficiency** — algorithmic waste, N+1 queries, hot-path
+  allocations, unbounded growth, missing caching/batching.
+- **Test Quality & Coverage** — test gaps for the changed behavior, assertions that
+  can't fail, missing edge-case/negative tests, over-mocking that hides bugs.
+
+If the user selects nothing on a tab, that's fine; if they select nothing on BOTH
+category tabs, treat it as **all six**.
+
+**Tab 3 — "Reviewer".** *"Are review subagents allowed?"*
+- **Category subagents (default)** — one `code-reviewer-<category>` subagent per
+  selected category, run in parallel.
+- **The advisor** — hand the diffs to the `advisor` tool for one independent pass
+  covering the selected categories. *(If no advisor is available this session, say so
+  and fall back.)*
+- **The main agent (you)** — you perform the adversarial review yourself, covering
+  the selected categories.
+
+**Tab 4 — "Advisor use".** *"Should the reviewer(s) consult the advisor for second
+opinions during the review?"* (Moot if the advisor IS the reviewer — say so in the
+question text when relevant. If no advisor is available this session, skip this tab
+and note it.)
+- **Consult the advisor (default)** — the reviewer(s) get a second opinion on
+  borderline or high-severity findings before finalizing them.
+- **No — independent review** — the reviewer(s) work alone; findings stand on their
+  own reasoning.
+
+**Adherence prerequisite (only if that category is selected):** check for project
+directives — `CLAUDE.md` (root and relevant subdirs), `.claude/rules/`, contributing
+docs, lint/format configs. If none exist, ask (AskUserQuestion): **Infer conventions
+from the codebase** (read neighboring files for the house style) or **User provides
+guidance** (let them state the rules to review against). Pass the outcome to whoever
+reviews that category.
+
+## L4 — Adversarial review (per selected category)
+This is **reasoning over the diff, not investigation** — no reviewer (you, advisor, or
+subagent) runs tests, executes code, or diagnoses to prove a finding out. A finding that
+can't be fully confirmed from the diff is still a finding: mark it *uncertain —
+confirming needs `<X>`* and carry it into the list.
+
+**If category subagents were chosen:** dispatch ONE `code-reviewer-<category>` agent per
+selected category (general / security / design / adherence / performance / tests) — all
+in a SINGLE message so they run in parallel. Each dispatch is minimal and self-contained:
+the repo (or worktree) absolute path, the exact base spec you diffed
+(`origin/<base>...HEAD` or `<ref>...HEAD`), the changed-file list from your `--stat`,
+the **advisor directive** from Tab 4 (`advisor: consult` or `advisor: none` — one
+line, always present so the agent never guesses), and — for the adherence agent — the
+directive files found (or the infer/user-guidance outcome) from L3. Each agent recomputes the diff with the same read-only git and returns
+findings in the fixed shape its definition specifies. **Cross-check every returned
+finding against your own diff** — the `file:line` must exist in the hunks you computed;
+drop (and note) anything that doesn't. You remain responsible for the merged result.
+
+**If the advisor or you review:** run one adversarial pass restricted to the union of
+the selected categories' checklists (as itemized in L3). If delegating to the advisor,
+tell it the same: static review, surface uncertainty, do not execute anything. If YOU
+review and Tab 4 chose consultation, take your borderline and high-severity findings
+to the advisor before finalizing and record its concurrence/dissent per finding.
+
+Either way: produce concrete findings, each tied to a file + line and tagged with its
+category.
 
 ## L5 — Triage into a severity-ranked list
-You (main) compile the findings into a **numbered list ordered by severity/concern**
+You (main) merge the findings — when category subagents ran, first **dedup across
+categories** (the same defect often surfaces under two lenses; keep one entry, note both
+category tags) — into a **numbered list ordered by severity/concern**
 (e.g. Critical → High → Medium → Low/Nit). Each item: a one-line problem statement, the
-`file:line`, and a **succinct recommended action**.
+`file:line`, the category tag(s), and a **succinct recommended action**.
 
 ## L6 — Decide how to work the list
 Ask (AskUserQuestion):
@@ -233,7 +295,8 @@ As in L2, with your own read-only git inside the worktree:
 not compute.
 
 ## G3–G5 — Review (same as L3–L5), then dedup against existing comments
-Choose the reviewer (advisor default), run the adversarial review, and compile the
+Choose the categories and the reviewer (category subagents default; point them at the
+WORKTREE path), run the per-category adversarial review, and compile the merged
 **severity-ranked numbered list** with a succinct recommended action each.
 
 **G5.5 — Dedup against existing comments.** You already hold the existing review

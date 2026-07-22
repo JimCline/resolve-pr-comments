@@ -90,6 +90,33 @@ if (input.agent_id) {
         },
       })
     );
+    process.exit(0);
+  }
+  // The per-category review subagents (code-critic L4) need the same active
+  // grant for their READ-ONLY git Bash — their `permissionMode` frontmatter is
+  // not honored either, and a non-interactive subagent's calls auto-deny.
+  // Grant Bash only when every segment is read-only inspection AND nothing
+  // outbound (gh / git push|commit|worktree|pull) rides along; anything else
+  // falls through to the normal flow (auto-deny), which enforces the static
+  // review by construction.
+  const reviewer =
+    /(^|:)code-reviewer-(general|security|design|adherence|performance|tests)$/.test(
+      input.agent_type || ''
+    );
+  const reviewerCmdOk =
+    isReadOnlyBash(cmd) &&
+    !/(^|[\s;&|(])(gh(\s|$)|git\s+(push|commit|worktree|pull)\b)/.test(cmd);
+  if (reviewer && tool === 'Bash' && reviewerCmdOk) {
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'allow',
+          permissionDecisionReason:
+            'github-pr-toolkit review subagent — read-only inspection Bash for the static review pass',
+        },
+      })
+    );
   }
   process.exit(0);
 }

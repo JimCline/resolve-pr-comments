@@ -3,8 +3,9 @@ name: code-critic
 description: >-
   Run an adversarial code review of a local diff or a GitHub PR, triage the findings by
   severity, and act on them — fix locally, or post inline PR review comments — delegating
-  ALL GitHub and outbound-git work to a Haiku critic-worker while the main model (or the
-  advisor) reasons. Use when the user wants to review, critique, or adversarially review
+  ALL GitHub and outbound-git work to a Haiku critic-worker while the main model, the
+  advisor, or parallel per-category review subagents (user-selected categories: general,
+  security, design, rules-adherence, performance, tests) reason. Use when the user wants to review, critique, or adversarially review
   their local changes / current diff / commits vs main; do a code review of a GitHub PR
   and comment on it; "red-team this diff"; or "critique PR N". This AUTHORS a review; for
   resolving reviewer comments already on a PR, use /resolve-pr-comments (same plugin) instead.
@@ -53,7 +54,13 @@ order. That file is the single source of truth for the flow; do not improvise pa
 Outline (same steps): **0** arm the session-named guard lock
 (`touch .git/code-critic-$CLAUDE_CODE_SESSION_ID.lock`) + pick mode (local vs GitHub PR) →
 **local:** choose base ref → YOU fetch + generate per-file diffs vs `origin/<base>` →
-choose reviewer (advisor default / main) → adversarial review → severity-ranked numbered
+choose review categories (multi-select: general / security / design & architecture /
+rules & idioms adherence / performance / tests; all six is the default) + choose the
+reviewer (parallel `code-reviewer-<category>` subagents default / advisor / main) +
+choose advisor consultation (default on: reviewers take borderline and high-severity
+findings to the advisor for a second opinion before finalizing) →
+per-category adversarial review (subagent findings cross-checked against YOUR diff,
+merged, deduped across categories) → severity-ranked numbered
 findings with a succinct action each → choose how to work the list (one-by-one / fix all /
 by severity) → apply fixes → one commit-and-push ask → one worker COMMIT(+PUSH) dispatch.
 **GitHub PR:** preflight + onboard the `github_pat` (Metadata:Read, Pull requests:R/W,

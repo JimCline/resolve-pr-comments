@@ -48,10 +48,22 @@ Or just ask in natural language ("review my local changes", "critique PR 1234") 
 ### Flow
 
 **Local:** pick a base → orchestrator fetches and generates per-file diffs vs
-`origin/<base>` → pick the reviewer (advisor default) → adversarial review →
-severity-ranked findings, each with a succinct action → choose one-by-one / fix all /
-fix by severity → apply fixes → one ask (commit and push / commit only / neither) →
-one worker dispatch commits (and pushes).
+`origin/<base>` → pick the **review categories** (multi-select: General, Security,
+Design & Architecture, Rules & Idioms Adherence, Performance & Efficiency, Test
+Quality & Coverage — all six is the default) and the **reviewer** (parallel
+per-category `code-reviewer-*` subagents by default, on the session model; or the
+advisor / the orchestrator itself) and whether the reviewer(s) should **consult the
+advisor** for second opinions on borderline and high-severity findings (default: yes,
+when an advisor is available; each consulted finding records the advisor's
+concurrence or dissent) → per-category adversarial review — subagent
+findings are cross-checked against the orchestrator's own diff, then merged and
+deduped across categories → severity-ranked findings, each with a succinct action →
+choose one-by-one / fix all / fix by severity → apply fixes → one ask (commit and
+push / commit only / neither) → one worker dispatch commits (and pushes).
+
+The **Rules & Idioms Adherence** category reviews against the project's own
+directives (CLAUDE.md, `.claude/rules/`, lint configs). If none exist, you choose:
+infer the house style from the codebase, or state the rules yourself.
 
 **GitHub PR:** preflight/onboard the PAT → choose the worktree location (default:
 `.claude/worktrees/pr-<N>` inside the repo, excluded via `.git/info/exclude`; or a path
