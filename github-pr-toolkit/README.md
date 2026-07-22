@@ -7,6 +7,7 @@
 | **`/resolve-pr-comments`** | Work through the review threads reviewers *already opened*: assess each, reply, fix or reject, and resolve. | this file |
 | **`/code-critic`** | *Author* an adversarial review of a local diff or a GitHub PR across user-selected categories (general, security, design, rules-adherence, performance, tests), via parallel per-category review subagents (or the advisor / main agent): severity-triaged findings, fix locally or post inline comments as one review. | [docs/code-critic.md](docs/code-critic.md) |
 | **`/github-pr-toolkit:doctor`** | Diagnose (and help fix) the GitHub MCP wiring without running either flow. | below |
+| **`add-review-category`** (skill) | Wizard: add your own `/code-critic` review category — guided creation from the trusted template, or validated import from a local file / GitHub. Installs to `~/.claude/agents` or the project's `.claude/agents`. | [docs/code-critic.md](docs/code-critic.md) |
 
 The two flows are complements — **code-critic writes reviews; resolve-pr-comments works
 through the reviews others wrote** — and share a clean split of labor:
@@ -18,7 +19,8 @@ through the reviews others wrote** — and share a clean split of labor:
   gated `gh` CLI fallback) and hand back only distilled results.
 - **Per-category review subagents** (`code-reviewer-general/-security/-design/
   -adherence/-performance/-tests`, on the **session model**, not Haiku) optionally fan
-  out code-critic's adversarial pass across the categories the user selects. They are
+  out code-critic's adversarial pass across the categories the user selects — plus any
+  custom categories added via the `add-review-category` skill. They are
   static, read-only reviewers — no GitHub tools, read-only git only — and the
   orchestrator cross-checks their findings against the diff it computed itself.
 

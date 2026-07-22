@@ -95,18 +95,18 @@ if (input.agent_id) {
   // The per-category review subagents (code-critic L4) need the same active
   // grant for their READ-ONLY git Bash — their `permissionMode` frontmatter is
   // not honored either, and a non-interactive subagent's calls auto-deny.
-  // Grant Bash only when every segment is read-only inspection AND nothing
-  // outbound (gh / git push|commit|worktree|pull) rides along; anything else
-  // falls through to the normal flow (auto-deny), which enforces the static
-  // review by construction.
-  const reviewer =
-    /(^|:)code-reviewer-(general|security|design|adherence|performance|tests)$/.test(
-      input.agent_type || ''
-    );
-  const reviewerCmdOk =
-    isReadOnlyBash(cmd) &&
-    !/(^|[\s;&|(])(gh(\s|$)|git\s+(push|commit|worktree|pull)\b)/.test(cmd);
-  if (reviewer && tool === 'Bash' && reviewerCmdOk) {
+  // Matches ANY code-reviewer-<slug> so user-created categories (the
+  // add-review-category wizard installs them to ~/.claude/agents or the
+  // project's .claude/agents) get the grant too. That breadth is safe ONLY
+  // because the grant is narrower than the orchestrator's assessing gate:
+  // isReviewerSafeBash drops the mutating utilities (rm/touch/mkdir/rmdir),
+  // sed -i, and output redirection that READ_ONLY_HEADS tolerates for the
+  // orchestrator's marker-file management. Anything else falls through to the
+  // normal flow (auto-deny), which enforces the static review by construction.
+  const reviewer = /(^|:)code-reviewer-[a-z0-9][a-z0-9-]*$/.test(
+    input.agent_type || ''
+  );
+  if (reviewer && tool === 'Bash' && isReviewerSafeBash(cmd)) {
     process.stdout.write(
       JSON.stringify({
         hookSpecificOutput: {
@@ -214,6 +214,40 @@ function isReadOnlyBash(command) {
     let head = tokens[0];
     if (head.includes('/')) head = head.slice(head.lastIndexOf('/') + 1);
     if (!READ_ONLY_HEADS.has(head)) return false;
+  }
+  return true;
+}
+
+// Reviewer-subagent Bash grant (stricter than isReadOnlyBash, which exists for
+// the ORCHESTRATOR and tolerates rm/touch/mkdir for its marker files). Review
+// subagents are auto-granted with no prompt — including user-created custom
+// categories — so this set is inspection-only, outbound git/gh is refused, and
+// the file-writing escape hatches (sed -i, `>`/`>>` redirection) are refused
+// too. A false denial just means the reviewer works from Read/Grep instead;
+// a false allow would be silent unprompted mutation. Err toward denial.
+function isReviewerSafeBash(command) {
+  const REVIEWER_HEADS = new Set([
+    'git', 'ls', 'cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'rg', 'fd',
+    'find', 'wc', 'pwd', 'echo', 'printf', 'true', 'false', 'test', '[',
+    'sed', 'awk', 'jq', 'yq', 'cut', 'sort', 'uniq', 'comm', 'diff',
+    'basename', 'dirname', 'realpath', 'readlink', 'stat', 'file', 'tree',
+    'column', 'which', 'type', ':',
+  ]);
+  if (/(^|[\s;&|(])(gh(\s|$)|git\s+(push|commit|worktree|pull)\b)/.test(command))
+    return false;
+  if (/(^|[^>])>{1,2}(?!&)/.test(command)) return false; // no redirection to files
+  if (/(^|[\s;&|(])sed\s+[^|;&\n]*-i/.test(command)) return false; // no in-place edits
+  const segments = command.split(/(?:&&|\|\||[;|\n])/);
+  for (let seg of segments) {
+    seg = seg.trim().replace(/^[({]\s*/, '');
+    let tokens = seg.split(/\s+/).filter(Boolean);
+    while (tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0])) {
+      tokens.shift();
+    }
+    if (!tokens.length) continue;
+    let head = tokens[0];
+    if (head.includes('/')) head = head.slice(head.lastIndexOf('/') + 1);
+    if (!REVIEWER_HEADS.has(head)) return false;
   }
   return true;
 }

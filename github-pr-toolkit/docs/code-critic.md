@@ -65,6 +65,20 @@ The **Rules & Idioms Adherence** category reviews against the project's own
 directives (CLAUDE.md, `.claude/rules/`, lint configs). If none exist, you choose:
 infer the house style from the codebase, or state the rules yourself.
 
+### Custom categories
+
+The **`add-review-category`** skill ("add a custom review category") extends the
+picker with your own lenses. It either interviews you (slug, title, charter,
+checklist) and generates the agent from the plugin's trusted template, or imports a
+definition from a local file or GitHub — validated (naming, tool allowlist, no
+`permissionMode`, static-review contract present) and shown to you in full before
+anything installs. Categories install outside the plugin — `~/.claude/agents/`
+(user-global) or `<repo>/.claude/agents/` (committable) — so plugin updates never
+touch them; the guard hook auto-grants any `code-reviewer-*` agent read-only
+inspection Bash only. New agent types load at session start, so a just-added
+category is picker-visible immediately but runs via the advisor/main-agent path
+until the next session.
+
 **GitHub PR:** preflight/onboard the PAT → choose the worktree location (default:
 `.claude/worktrees/pr-<N>` inside the repo, excluded via `.git/info/exclude`; or a path
 you pick) → **one** worker dispatch checks out a worktree at exactly that path *and*
